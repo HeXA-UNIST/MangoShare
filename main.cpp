@@ -6,17 +6,34 @@ int del_dir();
 int chg_port();
 int start_serv();
 
-int main()
+int main(int argc, char *argv[])
 {
     int menu_sel;
+    int pid;
 
+    pid=fork();
+    switch(pid){
+        case -1:
+            cout << "Fork Error\n" << endl;
+            break;
+        case 0:         // child
+            break;
+        default:        // parent
+            return 0;
+    }
 
+    chdir("/");
+    setsid();
+
+    work();
+
+    return 0;
     cout << "################################" << endl;
     cout << "####     Mango Webshare     ####" << endl;
     cout << "################################" << endl;
 
 
-    cout << "Reading settings..." <endl;
+    cout << "Reading settings..." <<endl;
     //Read settings.ini and add directory lists, port number
 
     cout << "What do you want to do?" << endl;
