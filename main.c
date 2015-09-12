@@ -174,20 +174,32 @@ void send_new_thread(int sock_clientfd)
 
 void send_normal_page(int sock_clientfd)
 {
-    char buffer[1024] = {0};
+    char buffer[255] = {0};
+    FILE *fp;
+    char data[255];
+    int SIZE = 255;
+    fp = fopen("templates/Oneshot.zip", "r");
 
+    //Basic Socket Header
     sprintf(buffer, "HTTP/1.1 200 OK\r\n");
     send(sock_clientfd, buffer, strlen(buffer), 0);
-    sprintf(buffer, "Content-Type:text/html;charset=UTF-8\r\n");
+    sprintf(buffer, "Content-Type: text/plain;charset=UTF-8\r\n");
     send(sock_clientfd, buffer, strlen(buffer), 0);
-    sprintf(buffer, "Host:mango.com\r\n");
+    sprintf(buffer, "Host: mango.com\r\n");
     send(sock_clientfd, buffer, strlen(buffer), 0);
-    sprintf(buffer, "Connection:close\r\n");
+    sprintf(buffer, "Connection: close\r\n");
+    send(sock_clientfd, buffer, strlen(buffer), 0);
+    sprintf(buffer, "Cotent-Length: 3000\r\n");
     send(sock_clientfd, buffer, strlen(buffer), 0);
     sprintf(buffer, "\r\n");
     send(sock_clientfd, buffer, strlen(buffer), 0);
-    sprintf(buffer, "<html>It Works!</html>\r\n");
-    send(sock_clientfd, buffer, strlen(buffer), 0);
+
+    //Read html file and send
+    while(fgets(data, SIZE, fp)){
+        printf("A");
+        sprintf(buffer, data);
+        send(sock_clientfd, buffer, strlen(buffer), 0);
+    }
     sprintf(buffer, "\r\n");
     send(sock_clientfd, buffer, strlen(buffer), 0);
     
