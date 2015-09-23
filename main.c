@@ -7,26 +7,37 @@
 #include <pthread.h>
 #include <ctype.h>
 #include <string.h>
+#include <dirent.h>
 
 enum is_get {POST=0, GET=1 };
+
+struct dir_data {
+    int num;
+    char sname[255];
+    char lname[255];
+    struct dir_data *next;
+}dir_data;
+
 struct th_data {
     int sock;
-    char ip[16];
-    char buf[1024];
-};
+    struct dir_data *dir_return;
+}th_data;
 
 int add_dir();
 int del_dir();
 int chg_port();
 int start_serv();
+struct dir_data* read_setting();
 int con_200();
-void send_new_thread(int );
+void send_new_thread(void* );
 int error_404(int );
 int read_socket_line(int sock_clientfd, char *buffer, int size);
-void send_normal_page(char*, int, enum is_get);
+void send_normal_page(char*, int, enum is_get, struct dir_data*);
 void send_header(int, int);
 void HTML_index(int );
 void HTML_file();
+struct dir_data find_list(char*, struct dir_data*);
+void find_dir(int, char*, struct dir_data);
 
 
 int main(int argc, char *argv[])
@@ -60,6 +71,74 @@ int main(int argc, char *argv[])
 }
 
 
+//This funciton reads settings.ini
+//# is comment
+//There are file's information and 
+struct dir_data *read_setting()
+{
+    struct dir_data *dir_return;
+    struct dir_data *dir_return_origin;
+    char buffer[255] = {0};
+    char buffer2[255] = {0};
+    char *line;
+    char *line_sub;
+    FILE *fp;
+    int SIZE = 255;
+    int len;
+
+    dir_return_origin = dir_return;
+    dir_return = (struct dir_data*)malloc(sizeof(dir_data));
+    dir_return->num = 0;
+    dir_return_origin = dir_return;
+    printf("%x\n", dir_return);
+
+    //Make Linked List
+
+
+    //Open file
+    fp = fopen("./settings.ini", "r");
+
+    //Read file and send
+    while ( getline(&line, &len, fp) != -1) {
+        //# is comment
+        if (line[0] == '#') {
+            continue;
+        }
+        
+        //name: ~~
+        //dir: ~~
+        if ( strstr(line, "name") == line ) {
+            if (getline(&line_sub, &len, fp) == -1) {
+                printf("ERROR\n");
+                break;
+            }
+            if ( strstr(line_sub, "dir") == line_sub ) {
+                printf("READ!\n");
+                strncpy(line, line+5, strlen(line));
+                strncpy(line_sub, line_sub+4, strlen(line_sub));
+                line[strlen(line)-1] = '\0';
+                line_sub[strlen(line_sub)-1] = '\0';
+                dir_return->next = (struct dir_data*)malloc(sizeof(dir_data));
+                dir_return = dir_return->next;
+                strncpy (dir_return->sname, line, strlen(line));
+                strncpy (dir_return->lname, line_sub, strlen(line_sub));
+                dir_return->num = 1;
+                dir_return_origin->num += 1;
+                continue;
+            } else {
+                printf("ERROR\n");
+                continue;
+            }
+        }
+
+        //Else
+        printf("ERROR\n");
+    }
+
+    fclose(fp);
+    return dir_return_origin;
+}
+
 int start_serv()
 {
     //Creating Demon...
@@ -79,6 +158,9 @@ int start_serv()
     }
     */
 
+    //Read sendind list
+    char dir_list[2][255] = {"files", "templates"};
+
     //Start Web Server in here.
     int sock_serv, sock_clientfd, serv_port = 5000, state, msg_size;
     struct sockaddr_in server_addr;
@@ -90,6 +172,12 @@ int start_serv()
     pthread_t p_thread;
     fd_set reads, cpy_reads;
     int fd_max, fd_num;
+    
+    //Read Settings....
+    struct dir_data *dir_return;
+    dir_return = read_setting();
+
+    struct th_data th_in_data;
 
     if ((sock_serv = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
@@ -135,8 +223,10 @@ int start_serv()
         sock_clientfd = accept(sock_serv, (struct sockaddr *)&server_addr, &len);
         //inet_ntop(AF_INET, &server_addr.sin_addr.s_addr, temp, sizeof(temp));
         //printf("Server : %s client connected.\n", temp);
-
-        if (pthread_create(&p_thread, NULL, send_new_thread, sock_clientfd) == -1)
+        
+        th_in_data.sock = sock_clientfd;
+        th_in_data.dir_return = dir_return;
+        if (pthread_create(&p_thread, NULL, send_new_thread, (void*)&th_in_data) == -1)
         {
             perror("thread Create error\n");
             exit(0);
@@ -153,14 +243,17 @@ int con_200()
 {
 }
 
-void send_new_thread(int sock_clientfd)
+void send_new_thread(void* arg)
 {
+    struct th_data *th_in_data = (struct th_data*) arg;
     char buffer[1024];
     char buffer2[1024];
     char method[255];
     char url[255];
     int numchars;
     int n=0, i, j;
+    int sock_clientfd = th_in_data->sock;
+    struct dir_data *dir_in_data = th_in_data->dir_return;
     enum is_get ifget;
 
     //Check GET or POST
@@ -180,12 +273,12 @@ void send_new_thread(int sock_clientfd)
     }
 
     //IF GET
-    //IF POST
     if (strcasecmp(method, "GET") == 0) {
         printf("GET\n");
         ifget = GET;
     }
     
+    //IF POST
     if (strcasecmp(method, "POST") == 0) {
         printf("POST\n");
         ifget = POST;
@@ -206,21 +299,23 @@ void send_new_thread(int sock_clientfd)
     //FUNC CHECK
 
     //Send to browser
-    send_normal_page(url, sock_clientfd, ifget);
+    send_normal_page(url, sock_clientfd, ifget, dir_in_data);
     close(sock_clientfd);
     return;
 }
 
 
-void send_normal_page(char* url, int sock_clientfd, enum is_get ifget)
+void send_normal_page(char* url, int sock_clientfd, enum is_get ifget, struct dir_data *dir_in_data)
 {
     char buffer[255] = {0};
     FILE *fp;
     char data[255] = {0};
+    char *block;
     char *get_char;
     int SIZE = 255;
     int byte_read;
     int is_html;
+    struct dir_data dir_find;
 
     //Check user's session id
     //check_id();
@@ -239,11 +334,96 @@ void send_normal_page(char* url, int sock_clientfd, enum is_get ifget)
     //Check if index page
     if (strcasecmp(data, "/") == 0) {
         HTML_index(sock_clientfd);
+        return;
     }
     //Check other page
-
+    block = strtok(data, "/");
+    printf("%s\n", block);
+    dir_find = find_list(block, dir_in_data);
+    if (dir_find.num == 0){
+        error_404(sock_clientfd);
+    } else{
+        find_dir(sock_clientfd, block, dir_find);
+    }
     
 }
+
+struct dir_data find_list(char *block, struct dir_data *dir_in_data)
+{
+    //Make array from read data from settings.ini
+
+    struct dir_data *dir_list;
+    int n, dir_num = dir_in_data->num;
+    struct dir_data dir_return;
+    char* sname;
+    char* lname;
+
+    dir_list = (struct dir_data*)malloc(sizeof(dir_data)*dir_num);
+
+    for (n=0; n < dir_num; n++){
+        dir_in_data = dir_in_data->next;
+        sname = dir_in_data->sname;
+        lname = dir_in_data->lname;
+        printf("%s\n", lname);
+        strncpy(dir_list[n].sname, sname, strlen(sname));
+        strncpy(dir_list[n].lname, lname, strlen(lname));
+    }
+
+    for ( n=0; n<dir_num; n++) {     
+        if (strcasecmp(block, dir_list[n].sname) == 0) {
+            //Find it!
+            printf("Find!\n");
+            strncpy(dir_return.sname, dir_list[n].sname, strlen(dir_list[n].sname));
+            strncpy(dir_return.lname, dir_list[n].lname, strlen(dir_list[n].lname));
+            dir_return.num = 1;
+            return dir_return;
+        }
+    }
+    //It isn't..
+    printf("404\n");
+    dir_return.num = 0;
+    return dir_return;
+}
+
+void find_dir(int sock_clientfd, char* block, struct dir_data dir_find)
+{
+    DIR* dp = NULL;
+    char* block_final;
+    char* full_dir;
+    printf("%s\n", dir_find.lname);
+    if (dp = opendir(dir_find.lname) == NULL) {
+        printf("DIR_OPEN_ERROR\n");
+        error_404(sock_clientfd);
+        return;
+    }
+
+    asprintf(&full_dir,"%s",dir_find.lname);
+
+    while ( (block = strtok(NULL, "/")) != NULL) {
+        printf("%s\n", block);
+        block_final = block;
+        asprintf(&full_dir,"%s/%s",full_dir,block);
+        printf("%s\n", full_dir);
+        if ((dp = opendir(full_dir)) == NULL) {
+            printf("DIR_OPEN_ERROR\n");
+            if ( access(full_dir, R_OK) == -1){
+                printf("FILE_ERROR\n");
+            } else{
+                break;
+            }
+            error_404(sock_clientfd);
+            return;
+        }
+    }
+    //Check if file or dir
+    
+    //if dir
+    
+    //if file
+    printf("%s\n", full_dir);
+    HTML_file(sock_clientfd, full_dir);
+}
+
 
 void send_header(int sock_clientfd, int is_html)
 {
@@ -267,13 +447,13 @@ int error_404(int sock_client)
 {
     char buffer[255];
 
-    sprintf(buffer, "HTTP/1.0 404 PAGE NOT FOUND\r\n");
-    send(sock_client, buffer, strlen(buffer), 0);
-    sprintf(buffer, "Content-Type:text/html;charset=UTF-8\r\n");
+    sprintf(buffer, "HTTP/1.0 200 NOT FOUND\r\n");
     send(sock_client, buffer, strlen(buffer), 0);
     sprintf(buffer, "Host:mango.com\r\n");
     send(sock_client, buffer, strlen(buffer), 0);
-    sprintf(buffer, "Connection:close\r\n");
+    sprintf(buffer, "Content-Type:text/html;charset=UTF-8\r\n");
+    send(sock_client, buffer, strlen(buffer), 0);
+    sprintf(buffer, "\r\n");
     send(sock_client, buffer, strlen(buffer), 0);
     sprintf(buffer, "\r\n");
     send(sock_client, buffer, strlen(buffer), 0);
@@ -325,7 +505,6 @@ void HTML_index(int sock_clientfd)
     int is_html;
 
     fp = open("templates/index.html", 0);
-    //fp = fopen("templates/AAA", "rb");
 
     //It it is html
     is_html = 1;
@@ -339,8 +518,26 @@ void HTML_index(int sock_clientfd)
     close(fp);
 }
 
-void HTML_file()
+void HTML_file(int sock_clientfd, char* full_dir)
 {
+    char buffer[255] = {0};
+    FILE *fp;
+    int SIZE = 255;
+    int byte_read;
+    int is_html;
+
+    fp = open(full_dir, 0);
+
+    //It is NOT html
+    is_html = 0;
+    //Basic Socket Header
+    send_header(sock_clientfd, is_html);
+
+    //Read file and send
+    while ( (byte_read=read(fp, buffer, sizeof(buffer)))>0 ){
+        send(sock_clientfd, buffer, byte_read, 0);
+    }
+    close(fp);
 }
 
 
