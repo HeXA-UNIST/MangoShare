@@ -23,6 +23,11 @@ struct th_data {
     struct dir_data *dir_return;
 }th_data;
 
+struct con_str {
+    char data[255];
+    struct con_str *next;
+}con_str;
+
 int add_dir();
 int del_dir();
 int chg_port();
@@ -34,10 +39,12 @@ int error_404(int );
 int read_socket_line(int sock_clientfd, char *buffer, int size);
 void send_normal_page(char*, int, enum is_get, struct dir_data*);
 void send_header(int, int);
-void HTML_index(int );
+void HTML_index(int, struct dir_data*);
+struct con_str* HTML_print_table(FILE*, struct con_str*, struct dir_data*);
 void HTML_file();
 struct dir_data find_list(char*, struct dir_data*);
 void find_dir(int, char*, struct dir_data);
+char *replaceAll(char *s, const char *olds, const char *news);
 
 
 int main(int argc, char *argv[])
@@ -90,7 +97,6 @@ struct dir_data *read_setting()
     dir_return = (struct dir_data*)malloc(sizeof(dir_data));
     dir_return->num = 0;
     dir_return_origin = dir_return;
-    printf("%x\n", dir_return);
 
     //Make Linked List
 
@@ -118,6 +124,7 @@ struct dir_data *read_setting()
                 strncpy(line_sub, line_sub+4, strlen(line_sub));
                 line[strlen(line)-1] = '\0';
                 line_sub[strlen(line_sub)-1] = '\0';
+
                 dir_return->next = (struct dir_data*)malloc(sizeof(dir_data));
                 dir_return = dir_return->next;
                 strncpy (dir_return->sname, line, strlen(line));
@@ -134,7 +141,15 @@ struct dir_data *read_setting()
         //Else
         printf("ERROR\n");
     }
+    //Setting templates directory open
+    dir_return->next = (struct dir_data*)malloc(sizeof(dir_data));
+    dir_return = dir_return->next;
+    strncpy (dir_return->sname, "statics", strlen("statics"));
+    strncpy (dir_return->lname, "./templates/statics", strlen("./templates/statics"));
+    dir_return->num = 1;
+    dir_return_origin->num += 1;
 
+    //File Close
     fclose(fp);
     return dir_return_origin;
 }
@@ -333,12 +348,12 @@ void send_normal_page(char* url, int sock_clientfd, enum is_get ifget, struct di
     }
     //Check if index page
     if (strcasecmp(data, "/") == 0) {
-        HTML_index(sock_clientfd);
+        HTML_index(sock_clientfd, dir_in_data);
         return;
     }
     //Check other page
     block = strtok(data, "/");
-    printf("%s\n", block);
+    printf("block: %s\n", block);
     dir_find = find_list(block, dir_in_data);
     if (dir_find.num == 0){
         error_404(sock_clientfd);
@@ -364,12 +379,16 @@ struct dir_data find_list(char *block, struct dir_data *dir_in_data)
         dir_in_data = dir_in_data->next;
         sname = dir_in_data->sname;
         lname = dir_in_data->lname;
+        printf("%s\n", sname);
         printf("%s\n", lname);
         strncpy(dir_list[n].sname, sname, strlen(sname));
         strncpy(dir_list[n].lname, lname, strlen(lname));
     }
 
     for ( n=0; n<dir_num; n++) {     
+        printf("============\n");
+        printf("%s\n", block);
+        printf("%s\n", dir_list[n].sname);
         if (strcasecmp(block, dir_list[n].sname) == 0) {
             //Find it!
             printf("Find!\n");
@@ -496,27 +515,118 @@ int read_socket_line(int sock_clientfd, char *buf, int size)
 }
 
 
-void HTML_index(int sock_clientfd)
+void HTML_index(int sock_clientfd, struct dir_data *dir_in_data)
 {
     char buffer[255] = {0};
     FILE *fp;
     int SIZE = 255;
     int byte_read;
     int is_html;
+    int n;
+    struct con_str *chunk;
+    struct con_str *chunk_org;
 
-    fp = open("templates/index.html", 0);
+    chunk = (struct con_str*)malloc(sizeof(con_str));
+    chunk_org = chunk;
+
+    fp = fopen("templates/index.html", "r");
 
     //It it is html
     is_html = 1;
     //Basic Socket Header
     send_header(sock_clientfd, is_html);
 
+    printf("INDEX: %s\n", dir_in_data->next->sname);
     //Read file and send
-    while ( (byte_read=read(fp, buffer, sizeof(buffer)))>0 ){
-        send(sock_clientfd, buffer, byte_read, 0);
+    //while ( (byte_read=read(fp, buffer, sizeof(buffer)))>0 ){
+    while ( fgets(buffer, sizeof(buffer), fp) != NULL){
+        printf("%s\n",buffer);
+
+        //READ TABLE
+        if (strstr(buffer, "{%TABLE_START%}") != NULL) {
+            chunk = HTML_print_table(fp, chunk, dir_in_data);
+        } else {
+            strncpy(chunk->data, buffer, sizeof(buffer));
+            //Save in Linked List
+            chunk->next = (struct con_str*)malloc(sizeof(con_str));
+            chunk = chunk->next;
+        }
+
     }
+
+    //Send to browser with Linked List
+    chunk = chunk_org;
+    while (chunk->next != NULL){
+        printf("send: %s\n",chunk->data);
+        if (send(sock_clientfd, chunk->data, sizeof(chunk->data), 0) == -1) break;
+        chunk = chunk->next;
+    }
+    printf("send_END\n");
     close(fp);
 }
+
+struct con_str* HTML_print_table(FILE *fp, struct con_str *chunk, struct dir_data *dir_in_data)
+{
+    //If File or Dir
+    //Get name, Modified
+    //If File, Filesize
+
+    char buffer[255], itos[128];
+    char *replace;
+    int number=1;
+    struct con_str *table_chunk;
+    struct con_str *table_chunk_org;
+    table_chunk = (struct con_str*)malloc(sizeof(con_str));
+    table_chunk_org = table_chunk;
+
+    fgets(buffer, sizeof(buffer), fp);
+    while (strstr(buffer, "{%TABLE_END%}") == NULL) {
+        strncpy(table_chunk->data, buffer, sizeof(buffer));
+        table_chunk->next = (struct con_str*)malloc(sizeof(con_str));
+        table_chunk = table_chunk->next;
+        fgets(buffer, sizeof(buffer), fp);
+    }
+
+    table_chunk = table_chunk_org;
+    strncpy(buffer, table_chunk->data, sizeof(buffer));
+    while (dir_in_data->next != NULL){
+        table_chunk = table_chunk_org;
+        while (table_chunk->next != NULL) {
+            if (strstr(buffer, "{{NUMBER}}") != NULL) {
+                sprintf(itos, "%d", number);
+                replace = replaceAll(buffer, "{{NUMBER}}", itos);
+                strncpy(buffer, replace, sizeof(buffer));
+                number++;
+                printf("DEBUG_NUM_: %s\n", buffer);
+                continue;
+            }
+            if (strstr(buffer, "{{FILENAME}}") != NULL) {
+                replace = replaceAll(buffer, "{{FILENAME}}", dir_in_data->next->sname);
+                strncpy(buffer, replace, sizeof(buffer));
+                printf("DEBUG_FILE_: %s\n", buffer);
+                continue;
+            }
+            if (strstr(buffer, "{{FILESIZE}}") != NULL) {
+            }
+            if (strstr(buffer, "{{MODIFIED}}") != NULL) {
+            }
+
+            printf("%s\n",buffer);
+            strncpy(chunk->data ,buffer, sizeof(buffer));
+            chunk->next = (struct con_str*)malloc(sizeof(con_str));
+            chunk = chunk->next;
+            table_chunk = table_chunk->next;
+            strncpy(buffer, table_chunk->data, sizeof(buffer));
+
+        }
+        dir_in_data = dir_in_data->next;
+    }
+
+    free(table_chunk);
+    return chunk;
+
+}
+
 
 void HTML_file(int sock_clientfd, char* full_dir)
 {
@@ -535,11 +645,46 @@ void HTML_file(int sock_clientfd, char* full_dir)
 
     //Read file and send
     while ( (byte_read=read(fp, buffer, sizeof(buffer)))>0 ){
-        send(sock_clientfd, buffer, byte_read, 0);
+        if (send(sock_clientfd, buffer, byte_read, 0) == -1) break;
     }
     close(fp);
 }
 
 
 
+void HTML_dir(int sock_clientfd, char* full_dir)
+{
+}
 
+
+char *replaceAll(char *s, const char *olds, const char *news) {
+  char *result, *sr;
+  size_t i, count = 0;
+  size_t oldlen = strlen(olds); if (oldlen < 1) return s;
+  size_t newlen = strlen(news);
+
+
+  if (newlen != oldlen) {
+    for (i = 0; s[i] != '\0';) {
+      if (memcmp(&s[i], olds, oldlen) == 0) count++, i += oldlen;
+      else i++;
+    }
+  } else i = strlen(s);
+
+
+  result = (char *) malloc(i + 1 + count * (newlen - oldlen));
+  if (result == NULL) return NULL;
+
+
+  sr = result;
+  while (*s) {
+    if (memcmp(s, olds, oldlen) == 0) {
+      memcpy(sr, news, newlen);
+      sr += newlen;
+      s  += oldlen;
+    } else *sr++ = *s++;
+  }
+  *sr = '\0';
+
+  return result;
+}

@@ -1,8 +1,67 @@
 <html>
     <head>
-        <title>It Works!</title>
+        <meta charset="utf-8" />
+        <title>Mango Webshare</title>
+        <link rel="stylesheet" href="http://yui.yahooapis.com/pure/0.6.0/pure-min.css">
+        <link rel="stylesheet" href="./statics/style.css"/>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
     </head>
     <body>
-        YEAH!
-    <body>
+        <div class="pure-menu pure-menu-horizontal" id="topmenu">
+            <span class="pure-menu-heading">MangoShare</span>
+
+            <ul class="pure-menu-list">
+                <li class="pure-menu-item"><a href="#" class="pure-menu-link">Home</a></li>
+                <li class="pure-menu-item"><a href="#" class="pure-menu-link">Menu</a></li>
+                <li class="pure-menu-heading">More Sites</li>
+                <li class="pure-menu-item"><a href="#" class="pure-menu-link">OMG!</a></li>
+            </ul>
+        </div>
+
+        <div class="ui main text container" id="bodytext">
+           <h1 class="ui header">MangoShare 1.0 ver</h1>
+               <p>The easy way to sharing files with your computer</p>
+               <p>Just download and start the program!</p>
+        </div>
+
+        <table class="pure-table pure-table-horizontal" id="filetable">
+            <thead id="file_table_head">
+                <tr>
+                    <th id="file_or_dir">#</th>
+                    <th class="file_name">Name</th>
+                    <th id="file_size">filesize</th>
+                    <th id="date_mod">modified</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {%TABLE_START%}
+                <tr class="">
+                    <td>{{NUMBER}}</td>
+                    <td class="file_name">{{FILENAME}}</td>
+                    <td>{{FILESIZE}}</td>
+                    <td>{{MODIFIED}}</td>
+                </tr>
+                {%TABLE_END%}
+            </tbody>
+        </table>
+
+        <div class="" id="footer">
+            <div class="ui center aligned container">
+                  <div class="ui stackable inverted divided grid">
+                    <div class="column">
+                      <h3 class="footer_h3">MangoShare</h4>
+                      <p>Extra space for a call to action inside the footer that could help re-engage users.</p>
+                    </div>
+                  </div>
+                  <div class="">
+                    <a class="footer_item" href="#">Site Map</a>
+                    <a class="footer_item" href="#">Contact Us</a>
+                    <a class="footer_item" href="#">Terms and Conditions</a>
+                    <a class="footer_item" href="#">Privacy Policy</a>
+                  </div>
+            </div>
+        </div>
+    </body>
 </html>
+

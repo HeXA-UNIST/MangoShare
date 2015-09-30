@@ -1,0 +1,47 @@
+#topmenu{
+    background-color: #D8D8D8;
+    height: 35px;
+}
+
+#bodytext{
+    max-width: 1000px;
+    margin-top: 50px;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    text-align: center;
+}
+#filetable{
+    max-width: 1000px;
+    min-width: 50%;
+    margin-top: 50px;
+    margin-bottom: 50px;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    text-align: center;
+}
+
+#file_table_head{
+    text-align: center;
+}
+#file_or_dir{
+    width: 10px;
+}
+.file_name{
+    text-align: left;
+}
+#file_size{
+    width: 100px;
+}
+#date_mod{
+    width:100px;
+}
+
+#footer{
+    padding: 5 10 10 10;
+    background-color:#1B1C1D;
+    color:#FFFFFF;
+}
+.footer_item{
+    color:#BBBBBB;
+}
+
