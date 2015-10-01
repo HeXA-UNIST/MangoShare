@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <dirent.h>
+#include <signal.h>
 
 enum is_get {POST=0, GET=1 };
 
@@ -45,6 +46,7 @@ void HTML_file();
 struct dir_data find_list(char*, struct dir_data*);
 void find_dir(int, char*, struct dir_data);
 char *replaceAll(char *s, const char *olds, const char *news);
+int isFileOrDir(char* s);
 
 
 int main(int argc, char *argv[])
@@ -52,6 +54,8 @@ int main(int argc, char *argv[])
     int opt;
     int opt_ok;
     int port_num;
+    //Ignore BROKEN PIPE
+    signal(SIGPIPE, SIG_IGN);
     while((opt = getopt(argc, argv, "adcs")) != -1) 
     {
         switch(opt) 
@@ -353,6 +357,9 @@ void send_normal_page(char* url, int sock_clientfd, enum is_get ifget, struct di
     }
     //Check other page
     block = strtok(data, "/");
+    if (block == NULL){
+        return;
+    }
     printf("block: %s\n", block);
     dir_find = find_list(block, dir_in_data);
     if (dir_find.num == 0){
@@ -409,6 +416,7 @@ void find_dir(int sock_clientfd, char* block, struct dir_data dir_find)
     DIR* dp = NULL;
     char* block_final;
     char* full_dir;
+    struct dirent *dir_entry;
     printf("%s\n", dir_find.lname);
     if (dp = opendir(dir_find.lname) == NULL) {
         printf("DIR_OPEN_ERROR\n");
@@ -434,13 +442,18 @@ void find_dir(int sock_clientfd, char* block, struct dir_data dir_find)
             return;
         }
     }
+    
+    closedir(dp);
     //Check if file or dir
-    
+    if (isFileOrDir(full_dir) == 0){
     //if dir
-    
+        printf("DIR!!\n");
+        HTML_dir(sock_clientfd, full_dir);
+    } else {
     //if file
-    printf("%s\n", full_dir);
-    HTML_file(sock_clientfd, full_dir);
+        printf("DIR: %s\n", full_dir);
+        HTML_file(sock_clientfd, full_dir);
+    }
 }
 
 
@@ -449,17 +462,17 @@ void send_header(int sock_clientfd, int is_html)
     char buffer[255];
 
     sprintf(buffer, "HTTP/1.0 200 OK\r\n");
-    send(sock_clientfd, buffer, strlen(buffer), 0);
+    if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
     sprintf(buffer, "Host: mango.com\r\n");
-    send(sock_clientfd, buffer, strlen(buffer), 0);
+    if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
     if (is_html == 1) {
         sprintf(buffer, "Content-Type: text/html;charset=UTF-8\r\n");
     } else {
         sprintf(buffer, "Content-Type: Application/octet-stream;charset=UTF-8\r\n");
     }
-    send(sock_clientfd, buffer, strlen(buffer), 0);
+    if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
     sprintf(buffer, "\r\n");
-    send(sock_clientfd, buffer, strlen(buffer), 0);
+    if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
 }
 
 int error_404(int sock_client)
@@ -467,19 +480,19 @@ int error_404(int sock_client)
     char buffer[255];
 
     sprintf(buffer, "HTTP/1.0 200 NOT FOUND\r\n");
-    send(sock_client, buffer, strlen(buffer), 0);
+    if (send(sock_client, buffer, strlen(buffer), 0) == -1) return;
     sprintf(buffer, "Host:mango.com\r\n");
-    send(sock_client, buffer, strlen(buffer), 0);
+    if (send(sock_client, buffer, strlen(buffer), 0) == -1) return;
     sprintf(buffer, "Content-Type:text/html;charset=UTF-8\r\n");
-    send(sock_client, buffer, strlen(buffer), 0);
+    if (send(sock_client, buffer, strlen(buffer), 0) == -1) return;
     sprintf(buffer, "\r\n");
-    send(sock_client, buffer, strlen(buffer), 0);
+    if (send(sock_client, buffer, strlen(buffer), 0) == -1) return;
     sprintf(buffer, "\r\n");
-    send(sock_client, buffer, strlen(buffer), 0);
+    if (send(sock_client, buffer, strlen(buffer), 0) == -1) return;
     sprintf(buffer, "<html>404</html>\r\n");
-    send(sock_client, buffer, strlen(buffer), 0);
+    if (send(sock_client, buffer, strlen(buffer), 0) == -1) return;
     sprintf(buffer, "\r\n");
-    send(sock_client, buffer, strlen(buffer), 0);
+    if (send(sock_client, buffer, strlen(buffer), 0) == -1) return;
 }
 
 
@@ -565,6 +578,7 @@ void HTML_index(int sock_clientfd, struct dir_data *dir_in_data)
     close(fp);
 }
 
+//Template MADE
 struct con_str* HTML_print_table(FILE *fp, struct con_str *chunk, struct dir_data *dir_in_data)
 {
     //If File or Dir
@@ -581,16 +595,16 @@ struct con_str* HTML_print_table(FILE *fp, struct con_str *chunk, struct dir_dat
 
     fgets(buffer, sizeof(buffer), fp);
     while (strstr(buffer, "{%TABLE_END%}") == NULL) {
+        printf("DEBUG_FGET: %s\n", buffer);
         strncpy(table_chunk->data, buffer, sizeof(buffer));
         table_chunk->next = (struct con_str*)malloc(sizeof(con_str));
         table_chunk = table_chunk->next;
         fgets(buffer, sizeof(buffer), fp);
     }
 
-    table_chunk = table_chunk_org;
-    strncpy(buffer, table_chunk->data, sizeof(buffer));
     while (dir_in_data->next != NULL){
         table_chunk = table_chunk_org;
+        strncpy(buffer, table_chunk->data, sizeof(buffer));
         while (table_chunk->next != NULL) {
             if (strstr(buffer, "{{NUMBER}}") != NULL) {
                 sprintf(itos, "%d", number);
@@ -635,6 +649,7 @@ void HTML_file(int sock_clientfd, char* full_dir)
     int SIZE = 255;
     int byte_read;
     int is_html;
+    int a=0;
 
     fp = open(full_dir, 0);
 
@@ -645,15 +660,87 @@ void HTML_file(int sock_clientfd, char* full_dir)
 
     //Read file and send
     while ( (byte_read=read(fp, buffer, sizeof(buffer)))>0 ){
-        if (send(sock_clientfd, buffer, byte_read, 0) == -1) break;
+        if (a = send(sock_clientfd, buffer, byte_read, 0) < 0) {
+            break;
+        }
     }
     close(fp);
+
 }
 
 
 
 void HTML_dir(int sock_clientfd, char* full_dir)
 {
+    char buffer[255] = {0};
+    FILE *fp;
+    DIR *dp;
+    int SIZE = 255;
+    int byte_read;
+    int is_html;
+    int n;
+    struct con_str *chunk;
+    struct con_str *chunk_org;
+    struct dir_data *dir_in_data;
+    struct dir_data *dir_in_data_org;
+    struct dirent *dir_entry;
+
+    chunk = (struct con_str*)malloc(sizeof(con_str));
+    chunk_org = chunk;
+
+    //Make dir_in_data
+    dir_in_data = (struct dir_data*)malloc(sizeof(dir_data));
+    dir_in_data_org = dir_in_data;
+
+    dp = opendir(full_dir);
+    while( dir_entry = readdir( dp )) {
+        printf( "%s\n", dir_entry->d_name);
+        if (dir_entry->d_name[0] == '.' && dir_entry->d_name[1] == '\0'){
+            continue;
+        }
+        dir_in_data->next = (struct dir_data*)malloc(sizeof(dir_data));
+        dir_in_data = dir_in_data->next;
+        strncpy(dir_in_data->sname, dir_entry->d_name, sizeof(dir_in_data->sname));
+        strncpy(dir_in_data->lname ,full_dir, sizeof(full_dir));
+        strncat(dir_in_data->lname, dir_entry->d_name, sizeof(dir_entry->d_name));
+    }
+    closedir(dp);
+
+
+    fp = fopen("templates/index.html", "r");
+
+    //It it is html
+    is_html = 1;
+    //Basic Socket Header
+    send_header(sock_clientfd, is_html);
+
+    dir_in_data = dir_in_data_org;
+    //Read file and send
+    //while ( (byte_read=read(fp, buffer, sizeof(buffer)))>0 ){
+    while ( fgets(buffer, sizeof(buffer), fp) != NULL){
+        printf("%s\n",buffer);
+
+        //READ TABLE
+        if (strstr(buffer, "{%TABLE_START%}") != NULL) {
+            chunk = HTML_print_table(fp, chunk, dir_in_data);
+        } else {
+            strncpy(chunk->data, buffer, sizeof(buffer));
+            //Save in Linked List
+            chunk->next = (struct con_str*)malloc(sizeof(con_str));
+            chunk = chunk->next;
+        }
+
+    }
+
+    //Send to browser with Linked List
+    chunk = chunk_org;
+    while (chunk->next != NULL){
+        if (send(sock_clientfd, chunk->data, sizeof(chunk->data), 0) == -1) break;
+        chunk = chunk->next;
+    }
+    close(fp);
+    free(dir_in_data);
+    free(chunk);
 }
 
 
@@ -687,4 +774,22 @@ char *replaceAll(char *s, const char *olds, const char *news) {
   *sr = '\0';
 
   return result;
+}
+
+int isFileOrDir(char* s)
+{
+    DIR* dir_info;
+    int result;
+
+    printf("CHECK=====\n");
+    printf("%s\n", s);
+    dir_info = opendir(s);
+    if (dir_info != NULL) {
+        result = 0; //Directory
+        closedir(dir_info);
+    } else {
+        result = -1; //File or Doesn't exist
+    }
+
+    return result;
 }
