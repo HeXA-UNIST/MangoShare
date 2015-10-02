@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <sys/types.h> 
 #include <sys/socket.h> 
+#include <sys/stat.h> 
 #include <netinet/in.h>
 #include <pthread.h>
 #include <ctype.h>
@@ -16,6 +17,8 @@ struct dir_data {
     int num;
     char sname[255];
     char lname[255];
+    long int filesize;
+    int is_dir;
     struct dir_data *next;
 }dir_data;
 
@@ -471,8 +474,6 @@ void send_header(int sock_clientfd, int is_html)
         sprintf(buffer, "Content-Type: Application/octet-stream;charset=UTF-8\r\n");
     }
     if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
-    sprintf(buffer, "\r\n");
-    if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
 }
 
 int error_404(int sock_client)
@@ -548,6 +549,8 @@ void HTML_index(int sock_clientfd, struct dir_data *dir_in_data)
     is_html = 1;
     //Basic Socket Header
     send_header(sock_clientfd, is_html);
+    sprintf(buffer, "\r\n");
+    if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
 
     printf("INDEX: %s\n", dir_in_data->next->sname);
     //Read file and send
@@ -585,7 +588,7 @@ struct con_str* HTML_print_table(FILE *fp, struct con_str *chunk, struct dir_dat
     //Get name, Modified
     //If File, Filesize
 
-    char buffer[255], itos[128];
+    char buffer[255], itos[128], href[255];
     char *replace;
     int number=1;
     struct con_str *table_chunk;
@@ -611,16 +614,26 @@ struct con_str* HTML_print_table(FILE *fp, struct con_str *chunk, struct dir_dat
                 replace = replaceAll(buffer, "{{NUMBER}}", itos);
                 strncpy(buffer, replace, sizeof(buffer));
                 number++;
-                printf("DEBUG_NUM_: %s\n", buffer);
                 continue;
             }
             if (strstr(buffer, "{{FILENAME}}") != NULL) {
-                replace = replaceAll(buffer, "{{FILENAME}}", dir_in_data->next->sname);
+                sprintf(href, "%s%s%s%s%s", "<a href=\"./", dir_in_data->next->sname,"/\">", dir_in_data->next->sname, "</a>");
+                replace = replaceAll(buffer, "{{FILENAME}}", href);
                 strncpy(buffer, replace, sizeof(buffer));
-                printf("DEBUG_FILE_: %s\n", buffer);
                 continue;
             }
             if (strstr(buffer, "{{FILESIZE}}") != NULL) {
+                //If Dir, don't show filesize
+                if (dir_in_data->next->is_dir == 1){
+                    replace = replaceAll(buffer, "{{FILESIZE}}", "-");
+                    strncpy(buffer, replace, sizeof(buffer));
+                    continue;
+                }
+                //If File
+                sprintf(itos, "%d", dir_in_data->next->filesize);
+                replace = replaceAll(buffer, "{{FILESIZE}}", itos);
+                strncpy(buffer, replace, sizeof(buffer));
+                continue;
             }
             if (strstr(buffer, "{{MODIFIED}}") != NULL) {
             }
@@ -649,14 +662,25 @@ void HTML_file(int sock_clientfd, char* full_dir)
     int SIZE = 255;
     int byte_read;
     int is_html;
+    int filesize=0;
     int a=0;
+    struct stat file_info;
 
     fp = open(full_dir, 0);
+    if ( stat( full_dir, &file_info) == 0 ) {
+        filesize = file_info.st_size;
+    }
 
     //It is NOT html
     is_html = 0;
     //Basic Socket Header
     send_header(sock_clientfd, is_html);
+    sprintf(buffer, "Content-Disposition: attachment; filename=\"%s\"\r\n", strrchr(full_dir, '/')+1);
+    if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
+    sprintf(buffer, "Content-Length: %d\r\n", filesize);
+    if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
+    sprintf(buffer, "\r\n");
+    if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
 
     //Read file and send
     while ( (byte_read=read(fp, buffer, sizeof(buffer)))>0 ){
@@ -673,6 +697,7 @@ void HTML_file(int sock_clientfd, char* full_dir)
 void HTML_dir(int sock_clientfd, char* full_dir)
 {
     char buffer[255] = {0};
+    char file_size[255] = {0};
     FILE *fp;
     DIR *dp;
     int SIZE = 255;
@@ -684,6 +709,7 @@ void HTML_dir(int sock_clientfd, char* full_dir)
     struct dir_data *dir_in_data;
     struct dir_data *dir_in_data_org;
     struct dirent *dir_entry;
+    struct stat file_info;
 
     chunk = (struct con_str*)malloc(sizeof(con_str));
     chunk_org = chunk;
@@ -694,7 +720,7 @@ void HTML_dir(int sock_clientfd, char* full_dir)
 
     dp = opendir(full_dir);
     while( dir_entry = readdir( dp )) {
-        printf( "%s\n", dir_entry->d_name);
+        printf( "DIRECTORY: %s\n", dir_entry->d_name);
         if (dir_entry->d_name[0] == '.' && dir_entry->d_name[1] == '\0'){
             continue;
         }
@@ -703,9 +729,19 @@ void HTML_dir(int sock_clientfd, char* full_dir)
         strncpy(dir_in_data->sname, dir_entry->d_name, sizeof(dir_in_data->sname));
         strncpy(dir_in_data->lname ,full_dir, sizeof(full_dir));
         strncat(dir_in_data->lname, dir_entry->d_name, sizeof(dir_entry->d_name));
+        sprintf(file_size, "%s/%s", full_dir, dir_entry->d_name);
+        if ( stat( file_size, &file_info) == 0 ) {
+            printf("FILE_SIZE_CHECK!\n");
+            dir_in_data->filesize = file_info.st_size;
+            if ( S_ISDIR(file_info.st_mode)) {
+                dir_in_data->is_dir=1;
+            } else {
+                dir_in_data->is_dir=0;
+            }
+        }
     }
     closedir(dp);
-
+    close(fp);
 
     fp = fopen("templates/index.html", "r");
 
@@ -713,6 +749,8 @@ void HTML_dir(int sock_clientfd, char* full_dir)
     is_html = 1;
     //Basic Socket Header
     send_header(sock_clientfd, is_html);
+    sprintf(buffer, "\r\n");
+    if (send(sock_clientfd, buffer, strlen(buffer), 0) == -1) return;
 
     dir_in_data = dir_in_data_org;
     //Read file and send
